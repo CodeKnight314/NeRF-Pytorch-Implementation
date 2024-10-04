@@ -85,3 +85,15 @@ class NeRF(nn.Module):
         color = self.color(color_input)
         
         return color, density
+    
+if __name__ == "__main__":
+    model = NeRF(pos_encoding_L=10, dir_encoding_L=4)
+
+    batch_size = 16
+    num_points = 10000
+    pos = torch.randn(batch_size, num_points, 3)
+    direction = torch.randn(batch_size, num_points, 3)
+    
+    color, density = model(pos, direction)
+    print(f"color output shape: {color.shape}")
+    print(f"density output shape: {density.shape}")
