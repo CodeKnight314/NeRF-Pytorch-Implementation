@@ -1,6 +1,14 @@
 import torch
 import torch.nn as nn
 
+class PhotometricLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.l1_loss = nn.L1Loss()
+        
+    def forward(self, predict_rgb, g_truth_rgb): 
+        return self.l1_loss(predict_rgb, g_truth_rgb)
+
 class NeRF(nn.Module):
     def __init__(self, pos_encoding_L: int = 10, dir_encoding_L: int = 4, 
                  hidden_units: int = 256, num_layers: int = 4):
