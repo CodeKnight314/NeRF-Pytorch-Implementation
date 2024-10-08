@@ -47,10 +47,13 @@ def ray_sampling(Oc: torch.Tensor, ray_direction: torch.Tensor, near_bound: int,
     
     Returns: 
         points (torch.Tensor): points along each ray [img_height, img_width, num_samples, 3]
-        t_vals (torch.Tensor): t_vals along the ray eqaution [num_samples, ]
+        t_vals (torch.Tensor): t_vals along the ray eqaution [num_samples, 1]
     """
+    # Generating t_vals for r(t)
     t_vals = torch.linspace(near_bound, far_bound, steps=num_steps, dtype=torch.float32)
-    points = Oc.unsqueeze(0).unsqueeze(0) + ray_direction.unsqueeze(2) * t_vals.unsqueeze(2)
+    
+    # Generating all r(t) for t_val range
+    points = Oc.unsqueeze(0).unsqueeze(0) + ray_direction.unsqueeze(-2) * t_vals.unsqueeze(1)
     return points, t_vals
     
     
