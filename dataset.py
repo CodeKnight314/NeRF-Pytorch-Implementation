@@ -5,16 +5,17 @@ import json
 from PIL import Image
 from torchvision import transforms as T
 from math import tan
-from ray_generation import ray_generation, ray_sampling
+from ray_generation import ray_generation, ray_sampling  # Custom functions for ray generation and sampling
+import argparse
 
 class SyntheticNeRF(Dataset):
-    def __init__(self, root_dir : str, mode : str, t_near : int, t_far : int, num_steps : int):
+    def __init__(self, root_dir: str, mode: str, t_near: int, t_far: int, num_steps: int):
         super().__init__()
         
         self.root_dir = root_dir
         self.mode = mode
         
-        with open(os.path.join(root_dir, mode, f"transforms_{mode}.json")) as f:
+        with open(os.path.join(root_dir, f"transforms_{mode}.json")) as f:
             self.ann_json = json.load(f)
         
         self.frames = self.ann_json['frames']
@@ -32,34 +33,84 @@ class SyntheticNeRF(Dataset):
         return len(self.frames)
     
     def __generate_input__(self, img_h, img_w, K_matrix, E_matrix):
+        """
+        Generate rays and sampled points for a given image.
+
+        Args:
+        - img_h: int, image height.
+        - img_w: int, image width.
+        - K_matrix: Tensor, camera intrinsic matrix.
+        - E_matrix: Tensor, camera extrinsic matrix.
+
+        Returns:
+        - points: Tensor, points sampled along the rays.
+        - t_vals: Tensor, corresponding t-values for sampling steps.
+        """
+        # Generate ray directions and camera origins
         ray_direction, Oc = ray_generation(img_h, img_w, K_matrix, E_matrix)
-        return ray_sampling(ray_direction, Oc, self.t_near, self.t_far, self.num_steps)
+        
+        # Sample points along the rays from near plane to far plane
+        return ray_sampling(Oc, ray_direction, self.t_near, self.t_far, self.num_steps)
     
-    def __getitem__(self, index):
+    def __getitem__(self, index: int):
+        """
+        Retrieve the image and associated data for a given index.
+
+        Args:
+        - index: int, index of the frame to retrieve.
+
+        Returns:
+        - dict: Dictionary containing image, camera matrices, points, and t-values.
+        """
+        # Get the filename of the current frame
         filename = os.path.basename(self.frames[index]["file_path"])
         
-        img = Image.open(os.path.join(self.root_dir, self.mode, filename+".png")).convert("RGB")
-        img_w, img_h = img.size
+        # Load the image and convert to RGB format
+        img = Image.open(os.path.join(self.root_dir, self.mode, filename + ".png")).convert("RGB")
+        img_w, img_h = img.size  # Get image width and height
+        
+        # Transform image into tensor and reshape to [num_pixels, 3]
         img = self.transform(img).view(-1, 3)
         
-        focal_length = img_w / (2.0 * tan(self.camera_angle/2))
+        # Compute focal length from the camera angle
+        focal_length = img_w / (2.0 * tan(self.camera_angle / 2))
         
-        K = torch.tensor([[focal_length, 0, img_w/2],
-                         [0, focal_length, img_h/2],
+        # Construct the intrinsic matrix (K) using the focal length and image size
+        K = torch.tensor([[focal_length, 0, img_w / 2],
+                         [0, focal_length, img_h / 2],
                          [0, 0, 1]], dtype=torch.float32)
         
-        E = torch.tensor(self.ann_json[index]['transform_matrix'], dtype=torch.float32)
+        # Load the camera extrinsic matrix (E) from the JSON file
+        E = torch.tensor(self.frames[index]['transform_matrix'], dtype=torch.float32)
         
+        # Generate the input points and corresponding t-values
         points, t_vals = self.__generate_input__(img_h, img_w, K, E)
-        points = points.view(-1, 3)
-        t_vals = t_vals.view(-1, 1)
+        points = points.view(-1, 3)  # Reshape points to [num_rays, 3]
+        t_vals = t_vals.view(-1, 1)  # Reshape t-values to [num_rays, 1]
         
         return {
-            "Image": img,
-            "height": img_h,
-            "width": img_w,
-            "K_matrix": K,
-            "E_matrix": E,
-            "points": points,
-            "t_vals": t_vals
+            "Image": img,  # Image tensor with shape [num_pixels, 3]
+            "height": img_h,  # Image height
+            "width": img_w,  # Image width
+            "K_matrix": K,  # Camera intrinsic matrix [3, 3]
+            "E_matrix": E,  # Camera extrinsic matrix [4, 3]
+            "points": points,  # Points sampled along the rays [height x width x num_steps, 3]
+            "t_vals": t_vals  # t-values for each point sampled along the rays [num_steps, 1]
         }
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--root_dir", type=str, required=True, help="root direction to nerf_synthetic")
+    
+    args = parser.parse_args()
+    
+    dataset = SyntheticNeRF(args.root_dir, "train", 1, 128, 64)
+    
+    nerf_dict = dataset.__getitem__(0)
+    
+    print(nerf_dict["Image"].shape)
+    print(nerf_dict["height"], nerf_dict["width"])
+    print(nerf_dict["K_matrix"].shape)
+    print(nerf_dict["E_matrix"].shape)
+    print(nerf_dict["points"].shape)
+    print(nerf_dict["t_vals"].shape)
