@@ -50,7 +50,7 @@ class SyntheticNeRF(Dataset):
         ray_direction, Oc = ray_generation(img_h, img_w, K_matrix, E_matrix)
         
         # Sample points along the rays from near plane to far plane
-        return ray_sampling(Oc, ray_direction, self.t_near, self.t_far, self.num_steps)
+        return ray_sampling(Oc, ray_direction, self.t_near, self.t_far, self.num_steps), ray_direction
     
     def __getitem__(self, index: int):
         """
@@ -70,7 +70,7 @@ class SyntheticNeRF(Dataset):
         img_w, img_h = img.size  # Get image width and height
         
         # Transform image into tensor and reshape to [num_pixels, 3]
-        img = self.transform(img).view(-1, 3)
+        img = self.transform(img)
         
         # Compute focal length from the camera angle
         focal_length = img_w / (2.0 * tan(self.camera_angle / 2))
@@ -84,17 +84,19 @@ class SyntheticNeRF(Dataset):
         E = torch.tensor(self.frames[index]['transform_matrix'], dtype=torch.float32)
         
         # Generate the input points and corresponding t-values
-        points, t_vals = self.__generate_input__(img_h, img_w, K, E)
+        points, t_vals, direction = self.__generate_input__(img_h, img_w, K, E)
         points = points.view(-1, 3)  # Reshape points to [num_rays, 3]
         t_vals = t_vals.view(-1, 1)  # Reshape t-values to [num_rays, 1]
+        direction = direction.view(-1, 3)
         
         return {
-            "Image": img,  # Image tensor with shape [num_pixels, 3]
+            "Image": img,  # Image tensor with shape [3, height, width]
             "height": img_h,  # Image height
             "width": img_w,  # Image width
             "K_matrix": K,  # Camera intrinsic matrix [3, 3]
             "E_matrix": E,  # Camera extrinsic matrix [4, 3]
             "points": points,  # Points sampled along the rays [height x width x num_steps, 3]
+            "direction": direction,
             "t_vals": t_vals  # t-values for each point sampled along the rays [num_steps, 1]
         }
 
@@ -112,5 +114,6 @@ if __name__ == "__main__":
     print(nerf_dict["height"], nerf_dict["width"])
     print(nerf_dict["K_matrix"].shape)
     print(nerf_dict["E_matrix"].shape)
+    print(nerf_dict["direction"].shape)
     print(nerf_dict["points"].shape)
     print(nerf_dict["t_vals"].shape)
