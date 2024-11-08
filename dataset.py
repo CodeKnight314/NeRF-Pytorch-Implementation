@@ -7,9 +7,10 @@ from torchvision import transforms as T
 from math import tan
 from ray_generation import ray_generation, ray_sampling  # Custom functions for ray generation and sampling
 import argparse
+from typing import List
 
 class SyntheticNeRF(Dataset):
-    def __init__(self, root_dir: str, mode: str, t_near: int, t_far: int, num_steps: int):
+    def __init__(self, root_dir: str, mode: str, t_near: int, t_far: int, num_steps: int, size: List[int]):
         super().__init__()
         
         self.root_dir = root_dir
@@ -22,6 +23,7 @@ class SyntheticNeRF(Dataset):
         self.camera_angle = self.ann_json["camera_angle_x"]
         
         self.transform = T.Compose([
+            T.Resize((size, size)),
             T.ToTensor()
         ])
         
