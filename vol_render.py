@@ -2,6 +2,32 @@ import torch
 import numpy as np
 import matplotlib.pyplot as plt
 import os
+import math
+from model import NeRF
+from tqdm import tqdm
+from ray_generation import ray_generation, ray_sampling
+from PIL import Image
+import argparse
+
+def extrinsic_matrix_generation(num_steps: int, radius: float):
+    re_matrices = [] 
+    step_size = 360 / num_steps
+    
+    theta = 0.0
+    for i in range(num_steps):
+        theta_rad = math.radians(theta)
+        
+        E_Matrix = torch.tensor([
+            [math.cos(theta_rad), 0, math.sin(theta_rad), radius * math.cos(theta_rad)],
+            [0, 1, 0, 0],
+            [-math.sin(theta_rad), 0, math.cos(theta_rad), radius * math.sin(theta_rad)],
+            [0, 0, 0, 1]
+        ]).float()
+        
+        re_matrices.append(E_Matrix)
+        theta += step_size
+
+    return re_matrices
 
 def vol_render(rgb: torch.Tensor, sigma: torch.Tensor, t_vals: torch.Tensor):
     """
@@ -56,14 +82,60 @@ def vol_visual(rgb_tensor: torch.Tensor, save_path: str):
         os.makedirs(save_path, exist_ok=True)  # Create the directory if it doesn't exist
         plt.imsave(os.path.join(save_path, "test.png"), rgb_numpy)
         
-if __name__ == "__main__":
-    img_width, img_height = 400, 400
-    num_samples = 64
+def rendering(weight_path: str, output_path: str, num_steps: int, img_h: int, img_w: int, radius: float = 4.0311):
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    
+    model = NeRF().to(device)
+    model.load_state_dict(torch.load(weight_path, weights_only=True))
+    
+    e_list = extrinsic_matrix_generation(num_steps=num_steps, radius=radius)
+    
+    frames = [] 
+    
+    focal_length = img_w / (2.0 * math.tan(0.6911112070083618 / 2))
+    K = torch.tensor([[focal_length, 0, img_w / 2],
+                        [0, focal_length, img_h / 2],
+                        [0, 0, 1]], dtype=torch.float32)
+    
+    for E in tqdm(e_list):
+        Oc, dir = ray_generation(img_height=100, img_width=100, K_matrix=K, E_matrix=E)
+        points, z_vals = ray_sampling(Oc=Oc, ray_direction=dir, near_bound=2., far_bound=6., num_samples=64)
+        
+        points = points.to(device)
+        dir = dir.to(device)
+        
+        with torch.no_grad():
+            rgb_prediction, density_prediction = model(points, dir)
+        
+        rgb_tensor = vol_render(rgb_prediction, density_prediction, z_vals)
+        
+        rgb_numpy = (rgb_tensor.detach().cpu().numpy() * 255).astype(np.uint8)
+        frames.append(Image.fromarray(rgb_numpy))
+    
+    os.makedirs(output_path, exist_ok=True)
+    
+    gif_path = os.path.join(output_path, "rendered_360.gif")
+    frames[0].save(gif_path, save_all=True, append_images=frames[1:], duration=100, loop=0)
 
-    rgb = torch.rand((img_height, img_width, num_samples, 3))  # Random RGB colors for each point
-    sigma = torch.rand((img_height, img_width, num_samples, 1))  # Random densities for each point
-    t_vals = torch.linspace(0, 1, num_samples)  # Sample distances along rays
+    print(f"GIF saved at: {gif_path}")
+    
+if __name__ == "__main__": 
+    parser = argparse.ArgumentParser(description="Render 360-degree GIF from NeRF model")
 
-    pixel_colors = vol_render(rgb, sigma, t_vals)
+    parser.add_argument("--weight_path", type=str, required=True, help="Path to the NeRF model weights")
+    parser.add_argument("--output_path", type=str, required=True, help="Directory to save the output GIF")
+    parser.add_argument("--num_steps", type=int, default=64, help="Number of frames for 360-degree rotation")
+    parser.add_argument("--img_h", type=int, default=100, help="Height of the rendered image")
+    parser.add_argument("--img_w", type=int, default=100, help="Width of the rendered image")
+    parser.add_argument("--radius", type=float, default=4.0311, help="Radius of the camera orbit around the scene")
 
-    vol_visual(pixel_colors, save_path='./render_output')
+    args = parser.parse_args()
+
+    rendering(
+        weight_path=args.weight_path,
+        output_path=args.output_path,
+        num_steps=args.num_steps,
+        img_h=args.img_h,
+        img_w=args.img_w,
+        radius=args.radius
+    )

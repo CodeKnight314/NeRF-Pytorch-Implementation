@@ -57,7 +57,7 @@ if __name__ == "__main__":
     parser.add_argument('--root', type=str, required=True, help='Path to dataset')
     parser.add_argument('--batch', type=int, default=1, help='Batch size for training')
     parser.add_argument('--lr', type=float, default=5e-4, help='Learning rate for the optimizer')
-    parser.add_argument('--epochs', type=int, default=10, help='Number of epochs to train the model')
+    parser.add_argument('--epochs', type=int, default=600, help='Number of epochs to train the model')
     parser.add_argument('--save', type=str, default='nerf_model.pth', help='Path to save the trained model')
     parser.add_argument('--pos_encoding_L', type=int, default=10, help='Number of frequencies for positional encoding')
     parser.add_argument('--dir_encoding_L', type=int, default=4, help='Number of frequencies for directional encoding')
