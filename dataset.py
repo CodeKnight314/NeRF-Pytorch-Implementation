@@ -10,7 +10,7 @@ import argparse
 from typing import List
 
 class SyntheticNeRF(Dataset):
-    def __init__(self, root_dir: str, mode: str, t_near: int, t_far: int, num_steps: int, size: List[int]):
+    def __init__(self, root_dir: str, mode: str, t_near: int, t_far: int, num_steps: int, size: int):
         super().__init__()
         
         self.root_dir = root_dir
