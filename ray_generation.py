@@ -15,26 +15,30 @@ def ray_generation(img_width : int, img_height : int, K_matrix : torch.Tensor, E
         Oc (torch.Tensor): matrix with shape [1, 3] that includes the camera origin of the generated rays.
     """
     # coords generation (img_height, img_width, 3)
-    x, y = torch.meshgrid(torch.arange(img_width), torch.arange(img_height))
-    coords = torch.cat([x, y, torch.ones_like(x)], dim=-1)
-    coords = coords.view((img_height, img_width, 3)).float()
+    y, x = torch.meshgrid(torch.arange(img_width), torch.arange(img_height), indexing='ij')
+    coords = torch.cat([x, y, torch.ones_like(x)], dim=-1).float()
+    coords_flat = coords.view(-1, 3)
     
-    # coords (img_height, img_width, 3) x K_matrix (3, 3)
-    cam_coords = torch.matmul(coords, torch.linalg.inv(K_matrix))
-    cam_coords = torch.cat([cam_coords, torch.ones((img_height, img_width, 1))], dim=-1)
-    cam_coords = cam_coords.view((img_height, img_width, 4))
-    
-    # Cam_coords (img_height, img_width, 4) x E_matrix (4, 4)
-    world_coords = torch.matmul(cam_coords, torch.linalg.inv(E_matrix))
-    
-    # world_coords - Camera_Origin / |world_coords - Camera_Origin|_2
+    # Map pixel coordinates to normalized camera coordinates
+    cam_coords_flat = torch.matmul(coords_flat, torch.linalg.inv(K_matrix).T)
+    cam_coords = cam_coords_flat.view(img_height, img_width, 3)
+
+    # Add homogeneous coordinate for transformation
+    cam_coords_hom = torch.cat([cam_coords, torch.ones((img_height, img_width, 1))], dim=-1)
+
+    # Map camera coordinates to world coordinates
+    world_coords = torch.matmul(cam_coords_hom, torch.linalg.inv(E_matrix).T)
+
+    # Extract the camera origin from E_matrix
     Oc = E_matrix[:3, 3]
+
+    # Calculate ray directions from the camera origin to the world coordinates
     ray_directions = world_coords[..., :3] - Oc
-    ray_directions = ray_directions / torch.linalg.norm(ray_directions, dim=-1, keepdim=True)  # Normalize
+    ray_directions = ray_directions / torch.linalg.norm(ray_directions, dim=-1, keepdim=True)
 
     return ray_directions, Oc
 
-def ray_sampling(Oc: torch.Tensor, ray_direction: torch.Tensor, near_bound: int, far_bound: int, num_steps: int):
+def ray_sampling(Oc: torch.Tensor, ray_direction: torch.Tensor, near_bound: int, far_bound: int, num_samples: int):
     """
     Samples points along ray directions from camera origin
     
@@ -50,10 +54,21 @@ def ray_sampling(Oc: torch.Tensor, ray_direction: torch.Tensor, near_bound: int,
         t_vals (torch.Tensor): t_vals along the ray eqaution [num_samples, 1]
     """
     # Generating t_vals for r(t)
-    t_vals = torch.linspace(near_bound, far_bound, steps=num_steps, dtype=torch.float32)
+    t_vals = torch.linspace(0., 1., steps=num_samples, dtype=torch.float32)
+    z_vals = near_bound * (1.-t_vals) + far_bound * (t_vals)
     
+    mids = .5 * (z_vals[1:] + z_vals[:-1])
+    upper = torch.cat([mids, z_vals[-1:]], dim=-1)
+    lower = torch.cat([z_vals[:1], mids], dim=-1)
+    t_rand = torch.rand([num_samples], device=z_vals.device)
+    z_vals = lower + (upper - lower) * t_rand
+    
+    z_vals = z_vals.expand(list(Oc.shape[:-1]) + [num_samples])
+
     # Generating all r(t) for t_val range
-    points = Oc.unsqueeze(0).unsqueeze(0) + ray_direction.unsqueeze(-2) * t_vals.unsqueeze(1)
-    return points, t_vals
+    points = Oc[..., None, :] + ray_direction[..., None, :] * z_vals[..., :, None]
+    points = points.view(-1, num_samples, 3)
+    z_vals = z_vals.view(-1, num_samples)
+    return points, z_vals
     
     
