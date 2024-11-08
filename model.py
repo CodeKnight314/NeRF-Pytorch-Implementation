@@ -98,7 +98,10 @@ if __name__ == "__main__":
     model = NeRF(pos_encoding_L=10, dir_encoding_L=4)
 
     batch_size = 16
-    num_points = 10000
+    height = 100 
+    width = 100 
+    num_steps = 12 
+    num_points = height * width * num_steps
     pos = torch.randn(batch_size, num_points, 3)
     direction = torch.randn(batch_size, num_points, 3)
     
