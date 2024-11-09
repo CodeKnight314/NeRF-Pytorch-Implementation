@@ -5,7 +5,7 @@ import os
 import math
 from model import NeRF
 from tqdm import tqdm
-from ray_generation import ray_generation, ray_sampling
+from rays import ray_generation, ray_sampling
 from PIL import Image
 import argparse
 
@@ -32,33 +32,36 @@ def extrinsic_matrix_generation(num_steps: int, radius: float):
 def vol_render(rgb: torch.Tensor, sigma: torch.Tensor, t_vals: torch.Tensor):
     """
     Perform volume rendering for NeRF to compute the final pixel colors.
-
     Args:
-        rgb (torch.Tensor): RGB colors of sampled points along rays. Shape: [img_height, img_width, num_samples, 3]
-        sigma (torch.Tensor): Density values of sampled points along rays. Shape: [img_height, img_width, num_samples, 1]
-        t_vals (torch.Tensor): Distances along each ray. Shape: [num_samples,]
-
+        rgb (torch.Tensor): RGB colors of sampled points along rays. 
+                            Shape: [batch_size, img_height, img_width, num_samples, 3]
+        sigma (torch.Tensor): Density values of sampled points along rays. 
+                              Shape: [batch_size, img_height, img_width, num_samples, 1]
+        t_vals (torch.Tensor): Distances along each ray. 
+                               Shape: [batch_size, num_samples, 1] 
     Returns:
-        pixel_colors (torch.Tensor): Final rendered pixel colors. Shape: [img_height, img_width, 3]
+        pixel_colors (torch.Tensor): Final rendered pixel colors. 
+                                    Shape: [batch_size, img_height, img_width, 3]
     """
-
-    deltas = t_vals[1:] - t_vals[:-1]  # Shape: [num_samples - 1]
+    deltas = t_vals[:, 1:, :] - t_vals[:, :-1, :]  # Shape: [batch_size, num_samples - 1, 1]
     delta_inf = torch.tensor([1e10], dtype=t_vals.dtype, device=t_vals.device)
-    deltas = torch.cat([deltas, delta_inf], dim=0)  # Shape: [num_samples]
-    deltas = deltas.view(1, 1, -1, 1)  # Reshape to [1, 1, num_samples, 1] for broadcasting
 
-    alpha = 1.0 - torch.exp(-sigma * deltas)  # Shape: [img_height, img_width, num_samples, 1]
+    # Expand delta_inf to match the shape of deltas
+    delta_inf = delta_inf.view(1, 1, 1).expand_as(deltas[:, :1, :])  
 
+    deltas = torch.cat([deltas, delta_inf], dim=1)  # Shape: [batch_size, num_samples, 1]
+    
+    # Expand deltas to be compatible with sigma for element-wise multiplication
+    deltas = deltas.unsqueeze(1).unsqueeze(1).expand_as(sigma) # Shape: [batch_size, img_height, img_width, num_samples, 1]
+
+    alpha = 1.0 - torch.exp(-sigma * deltas)  # Shape: [batch_size, img_height, img_width, num_samples, 1]
     eps = 1e-10  # Small epsilon to prevent numerical issues
     transmittance = torch.cumprod(
-        torch.cat([torch.ones_like(alpha[:, :, :1, :]), 1.0 - alpha + eps], dim=2),
-        dim=2
-    )[:, :, :-1, :]  # Shape: [img_height, img_width, num_samples, 1]
-
-    weights = alpha * transmittance  # Shape: [img_height, img_width, num_samples, 1]
-
-    img_tensor = torch.sum(weights * rgb, dim=2)  # Shape: [img_height, img_width, 3]
-
+        torch.cat([torch.ones_like(alpha[:, :, :, :1, :]), 1.0 - alpha + eps], dim=3),
+        dim=3
+    )[:, :, :, :-1, :]  # Shape: [batch_size, img_height, img_width, num_samples, 1]
+    weights = alpha * transmittance  # Shape: [batch_size, img_height, img_width, num_samples, 1]
+    img_tensor = torch.sum(weights * rgb, dim=3)  # Shape: [batch_size, img_height, img_width, 3]
     return img_tensor
 
 def vol_visual(rgb_tensor: torch.Tensor, save_path: str):
