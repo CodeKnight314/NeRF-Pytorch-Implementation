@@ -5,7 +5,7 @@ import json
 from PIL import Image
 from torchvision import transforms as T
 from math import tan
-from ray_generation import ray_generation, ray_sampling  # Custom functions for ray generation and sampling
+from rays import ray_generation, ray_sampling  # Custom functions for ray generation and sampling
 import argparse
 from typing import List
 
@@ -30,6 +30,7 @@ class SyntheticNeRF(Dataset):
         self.t_near = t_near
         self.t_far = t_far
         self.num_steps = num_steps
+        self.size = size
         
     def __len__(self):
         return len(self.frames)
@@ -52,7 +53,8 @@ class SyntheticNeRF(Dataset):
         ray_direction, Oc = ray_generation(img_h, img_w, K_matrix, E_matrix)
         
         # Sample points along the rays from near plane to far plane
-        return ray_sampling(Oc, ray_direction, self.t_near, self.t_far, self.num_steps), ray_direction
+        points, z_vals = ray_sampling(Oc, ray_direction, self.t_near, self.t_far, self.num_steps)
+        return points, z_vals, ray_direction
     
     def __getitem__(self, index: int):
         """
@@ -86,15 +88,20 @@ class SyntheticNeRF(Dataset):
         E = torch.tensor(self.frames[index]['transform_matrix'], dtype=torch.float32)
         
         # Generate the input points and corresponding t-values
-        points, t_vals, direction = self.__generate_input__(img_h, img_w, K, E)
+        points, t_vals, direction = self.__generate_input__(self.size, self.size, K, E)
         points = points.view(-1, 3)  # Reshape points to [num_rays, 3]
         t_vals = t_vals.view(-1, 1)  # Reshape t-values to [num_rays, 1]
         direction = direction.view(-1, 3)
+        # Repeat for each sample along the ray
+        direction = direction.unsqueeze(1).repeat(1, self.num_steps, 1)  
+        
+        # Reshape to final desired shape (height * width * num_steps, 3)
+        direction = direction.view(-1, 3) 
         
         return {
             "Image": img,  # Image tensor with shape [3, height, width]
-            "height": img_h,  # Image height
-            "width": img_w,  # Image width
+            "height": self.size,  # Image height
+            "width": self.size,  # Image width
             "K_matrix": K,  # Camera intrinsic matrix [3, 3]
             "E_matrix": E,  # Camera extrinsic matrix [4, 3]
             "points": points,  # Points sampled along the rays [height x width x num_steps, 3]
