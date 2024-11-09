@@ -1,7 +1,7 @@
 import torch
 import numpy as np
 from math import tan
-from ray_generation import ray_generation, ray_sampling
+from rays import ray_generation, ray_sampling
 from vol_render import vol_render
 import argparse
 import os
