@@ -1,6 +1,8 @@
 # NeRF-Pytorch-Implementation
 
 ## Overview:
-This is an educational repository on the implementation of NeRF for novel view synthesis. The primary dataset used is NeRF Synthetic which includes synthetic rendered images of objects at various angles. The main goal of this repository is to provide a demonstration of various technical concepts involved in traing NeRF and rendering images. There are also minor novel mechanism incorporated for exploratory purposes which you may view in ```model.py```. Weights, and visual results will be provided as available.
+This is an educational repository on the implementation of NeRF for novel view synthesis from scratch. The primary dataset used is NeRF Synthetic which includes synthetic rendered images of objects at various angles. The main goal of this repository is to provide a demonstration of various technical concepts involved in traing NeRF and rendering images. 
 
-If you have any suggestions, feel free to email me: richardgtang@gmail.com
+```python 
+python NeRF-Pytorch-Implementation/train.py --root lego/ --batch 1 --lr 5e-4 --epochs 100 --save Outputs/ --pos_encoding_L 10 --dir_encoding_L 4 --num_steps 128 --size 128
+```
