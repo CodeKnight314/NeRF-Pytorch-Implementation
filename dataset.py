@@ -1,13 +1,12 @@
 import torch
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Dataset
 import os 
 import json
 from PIL import Image
 from torchvision import transforms as T
 from math import tan
-from rays import ray_generation, ray_sampling  # Custom functions for ray generation and sampling
+from rays import ray_generation, ray_sampling
 import argparse
-from typing import List
 
 class SyntheticNeRF(Dataset):
     def __init__(self, root_dir: str, mode: str, t_near: int, t_far: int, num_steps: int, size: int):
@@ -84,19 +83,30 @@ class SyntheticNeRF(Dataset):
                          [0, focal_length, img_h / 2],
                          [0, 0, 1]], dtype=torch.float32)
         
+        if self.size: 
+            new_width = self.size / img_w 
+            new_height = self.size / img_h
+            
+            K = torch.tensor([[focal_length * new_width, 0, img_w * new_width/ 2],
+                         [0, focal_length * new_height, img_h * new_height/ 2],
+                         [0, 0, 1]], dtype=torch.float32)
+            
+        
         # Load the camera extrinsic matrix (E) from the JSON file
         E = torch.tensor(self.frames[index]['transform_matrix'], dtype=torch.float32)
         
         # Generate the input points and corresponding t-values
         points, t_vals, direction = self.__generate_input__(self.size, self.size, K, E)
-        points = points.view(-1, 3)  # Reshape points to [num_rays, 3]
-        t_vals = t_vals.view(-1, 1)  # Reshape t-values to [num_rays, 1]
+        points = points.view(-1, 3)# Reshape points to [num_rays, 3]
+
+        t_vals = t_vals.reshape(-1, 1)  # Reshape t-values to [num_rays, 1]
         direction = direction.view(-1, 3)
         # Repeat for each sample along the ray
         direction = direction.unsqueeze(1).repeat(1, self.num_steps, 1)  
         
         # Reshape to final desired shape (height * width * num_steps, 3)
         direction = direction.view(-1, 3) 
+        direction = direction / direction.norm(dim=-1, keepdim=True)
         
         return {
             "Image": img,  # Image tensor with shape [3, height, width]
