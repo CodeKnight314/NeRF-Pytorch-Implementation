@@ -4,7 +4,7 @@ from torch.utils.data import DataLoader
 import argparse
 from model import NeRF, PhotometricLoss
 from dataset import SyntheticNeRF 
-from vol_render import vol_render
+from vol_render import render_volume
 
 def evaluate_nerf(args):
     dataset = SyntheticNeRF(args.dataset_path, mode="val", t_near=args.t_near, t_far=args.t_far, num_steps=args.num_steps)
@@ -35,7 +35,7 @@ def evaluate_nerf(args):
             rgb_pred = rgb_pred.view(args.batch_size, height, width, -1, 3)
             density_pred = density_pred.view(args.batch_size, height, width, -1, 1)
             
-            rgb_tensor = vol_render(rgb_pred, density_pred, data['t_vals'].to(device))
+            rgb_tensor = render_volume(rgb_pred, density_pred, data['t_vals'].to(device))
 
             loss = photometric_loss(rgb_tensor, img)
             total_loss += loss.item()

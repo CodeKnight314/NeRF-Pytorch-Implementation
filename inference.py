@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from math import tan
 from rays import ray_generation, ray_sampling
-from vol_render import vol_render
+from vol_render import render_volume
 import argparse
 import os
 from PIL import Image
@@ -63,7 +63,7 @@ def inference(model, camera_angle, img_dim, num_views, radius, height, near_boun
         rgb_pred = rgb_pred.view(img_h, img_w, -1, 3)
         density_pred = density_pred.view(img_h, img_w, -1, 1)
         
-        rgb_tensor = vol_render(rgb_pred, density_pred, t_vals)
+        rgb_tensor = render_volume(rgb_pred, density_pred, t_vals)
         rgb_image = (rgb_tensor.clamp(0, 1) * 255).to(torch.uint8).cpu().numpy()
         image = Image.fromarray(rgb_image)
         image.save(os.path.join(output_dir, f'rendered_view_{i:03d}.png'))
