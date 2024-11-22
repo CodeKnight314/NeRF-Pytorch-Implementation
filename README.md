@@ -46,19 +46,14 @@ This is an educational repository on the implementation of NeRF for novel view s
 Use the `vol_render.py` script to perform super-resolution on images in a specified directory.
 
 **Arguments:**
-- `--root_dir`: Directory containing input images.
-- `--output_dir`: Directory to save super-resolved images.
-- `--resize`: Optional flag to resize super-resolved images to the original image size.
+- `--weight_path`: Directory reference for NeRF weights.
+- `--output_path`: Directory to save rendered images.
+- `--img_h`: Height of the rendered image.
+- `--img_w`: Width of the rendered image.
 
 **Example:**
 ```bash
 python vol_render.py --weight_path ./dir/weights --output_path ./data/output --img_h HEIGHT --img_w WIDTH
-```
-
-You can optionally use the `--resize` flag if you want the super-resolved image to be resized to original image size.
-
-```bash
-python inference.py --root_dir ./data/input --output_dir ./data/output --resize 
 ```
 
 ### Training
