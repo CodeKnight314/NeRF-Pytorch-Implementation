@@ -19,6 +19,40 @@ def calculate_psnr(img1, img2):
         return float("inf")
     return 20 * math.log10(1.0) - 10 * torch.log10(mse).item()
 
+def advanced_diagnostics(model, dataloader):
+    # Comprehensive logging and diagnostics
+    diagnostics = {
+        'weight_stats': {},
+        'gradient_stats': {},
+        'activation_stats': {}
+    }
+    
+    # Collect detailed network statistics
+    for name, param in model.named_parameters():
+        diagnostics['weight_stats'][name] = {
+            'mean': param.data.mean().item(),
+            'std': param.data.std().item(),
+            'min': param.data.min().item(),
+            'max': param.data.max().item(),
+            'grad_norm': param.grad.norm().item() if param.grad is not None else None
+        }
+    
+    return diagnostics
+
+def diagnose_gradient_flow(model):
+    print("Gradient Flow Diagnostics:")
+    for name, param in model.named_parameters():
+        if param.grad is not None:
+            grad_norm = param.grad.norm().item()
+            weight_norm = param.data.norm().item()
+            print(f"{name}: Grad Norm = {grad_norm:.6f}, Weight Norm = {weight_norm:.6f}")
+            
+            # Advanced gradient checks
+            if grad_norm > 1.0:
+                print(f"WARNING: Large gradient in {name}")
+            elif grad_norm < 1e-6:
+                print(f"WARNING: Vanishing gradient in {name}")
+
 def create_mask(image, threshold=0.01):
     """
     Create a binary mask where non-background pixels are set to 1.
@@ -128,14 +162,12 @@ def forward_with_chunks_coarse_fine(model_coarse, model_fine, points, direction_
     return (colors_coarse, densities_coarse), (colors_fine, densities_fine)
 
 def train_nerf(args):
-    dataset = SyntheticNeRF(args.root, mode="train", t_near=args.t_near, t_far=args.t_far, num_steps=args.num_steps, size=args.size)
+    dataset = SyntheticNeRF(args.root, mode="train", size=args.size)
     dataloader = DataLoader(dataset, batch_size=args.batch, shuffle=True)
 
     # Initialize coarse and fine models
-    model_coarse = NeRF(pos_encoding_L=args.pos_encoding_L, dir_encoding_L=args.dir_encoding_L, hidden_units=256)
-    model_fine = NeRF(pos_encoding_L=args.pos_encoding_L, dir_encoding_L=args.dir_encoding_L, hidden_units=256)
+    model_coarse = NeRF()
     model_coarse.train()
-    model_fine.train()
     
     optimizer = optim.Adam(list(model_coarse.parameters()) + list(model_fine.parameters()), lr=args.lr)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=args.epochs, eta_min=1e-5)
@@ -154,78 +186,44 @@ def train_nerf(args):
         
         for batch_idx, data in enumerate(tqdm(dataloader, desc=f"[{epoch+1}/{args.epochs}]")):
             img = data['Image'].to(device)
-            height = data['height'][0].item()
-            width = data['width'][0].item()
-            points = data['points'].to(device)
-            direction = data['direction'].to(device)
+            ray_o = data['Origin'].to(device)
+            ray_d = data['direction'].to(device)
 
             optimizer.zero_grad()
     
-            (rgb_pred_coarse, density_pred_coarse), (rgb_pred_fine, density_pred_fine) = forward_with_chunks_coarse_fine(
-                model_coarse, model_fine, points, direction, num_steps=args.num_steps, fine_samples=args.fine_samples
-            )
+            rgb_tensor = render_volume(model_coarse, ray_o, ray_d, args.t_near, args.t_far, args.num_steps)
 
-            rgb_pred_coarse = rgb_pred_coarse.view(rgb_pred_coarse.shape[0], -1, 3)
-            density_pred_coarse = density_pred_coarse.view(density_pred_coarse.shape[0], -1, 1)
-            rgb_pred_fine = rgb_pred_fine.view(rgb_pred_fine.shape[0], -1, 3)
-            density_pred_fine = density_pred_fine.view(density_pred_fine.shape[0], -1, 1)
-
-            # Coarse pass rendering
-            rgb_tensor_coarse = render_volume(rgb_pred_coarse, density_pred_coarse, data['t_vals'].to(device))
-            rgb_tensor_coarse = rgb_tensor_coarse.view(-1, 3, height, width)
-
-            # Fine pass rendering
-            rgb_tensor_fine = render_volume(rgb_pred_fine, density_pred_fine, data['t_vals'].to(device))
-            rgb_tensor_fine = rgb_tensor_fine.view(-1, 3, height, width)
-
-            # Losses for both passes
-            loss_coarse = photometric_loss(rgb_tensor_coarse, img)
-            loss_fine = photometric_loss(rgb_tensor_fine, img)
-            loss = loss_coarse + loss_fine
+            loss_coarse = photometric_loss(rgb_tensor, img)
+            loss = loss_coarse
             loss.backward()
             optimizer.step()
     
             total_loss += loss.item()
             
-            psnr = calculate_psnr(rgb_tensor_fine, img)
+            psnr = calculate_psnr(rgb_tensor, img)
             total_psnr += psnr
             
         avg_loss = total_loss / len(dataloader)
         avg_psnr = total_psnr / len(dataloader)
-                
-        rgb_tensor_min = rgb_tensor_fine.min().item()
-        rgb_tensor_max = rgb_tensor_fine.max().item()
-        img_min = img.min().item()
-        img_max = img.max().item()
 
         total_coarse_norm = 0
         for p in model_coarse.parameters():
             param_norm = p.grad.data.norm(2)
             total_coarse_norm += param_norm.item() ** 2
         total_coarse_norm = total_coarse_norm ** 0.5
-
-        total_fine_norm = 0 
-        for p in model_fine.parameters(): 
-            param_norm = p.grad.data.norm(2)
-            total_fine_norm += param_norm.item() ** 2 
-        total_fine_norm = total_fine_norm ** 0.5
         
-        print(f"Gradient Coarse Norm: {total_coarse_norm}")
-        print(f"Gradient Fine Norm: {total_fine_norm}")
+        print(f"Gradient Norm: {total_coarse_norm}")
         print(f"Epoch {epoch + 1}/{args.epochs}, Average Loss: {avg_loss:.4f}, Average PSNR: {avg_psnr:.2f} dB")
-        print(f"rgb_tensor prediction - Min: {rgb_tensor_min:.4f}, Max: {rgb_tensor_max:.4f}")
-        print(f"Ground truth image - Min: {img_min:.4f}, Max: {img_max:.4f}")
-        
+                
         scheduler.step()
 
         torch.save(model_coarse.state_dict(), os.path.join(args.save, "nerf_model_coarse.pth"))
-        torch.save(model_fine.state_dict(), os.path.join(args.save, "nerf_model_fine.pth"))
     
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train a NeRF model")
     parser.add_argument('--root', type=str, required=True, help='Path to dataset')
     parser.add_argument('--batch', type=int, default=1, help='Batch size for training')
-    parser.add_argument('--lr', type=float, default=5e-4, help='Learning rate for the optimizer')
+    parser.add_argument('--lr', type=float, default=5e-3, help='Learning rate for the optimizer')
     parser.add_argument('--epochs', type=int, default=100, help='Number of epochs to train the model')
     parser.add_argument('--save', type=str, required=True, help='Path to save the trained model')
     parser.add_argument('--pos_encoding_L', type=int, default=10, help='Number of frequencies for positional encoding')
