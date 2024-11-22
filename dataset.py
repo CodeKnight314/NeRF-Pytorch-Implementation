@@ -64,7 +64,7 @@ class SyntheticNeRF(Dataset):
         img = Image.open(os.path.join(self.root_dir, self.mode, filename + ".png")).convert("RGB")
         img_w, img_h = img.size 
         
-        img = self.transform(img)
+        img = self.transform(img).view(-1, 3)
         
         focal_length = img_w / (2.0 * tan(self.camera_angle / 2))
         
@@ -85,7 +85,8 @@ class SyntheticNeRF(Dataset):
         
         Direction, Oc = self.__generate_input__(self.size, self.size, K, E)
                 
-        direction = direction.view(-1, 3) 
+        Direction = Direction.view(-1, 3)
+        Oc = Oc.expand(Direction.shape[0], 3)
         
         return {
             "Image": img,

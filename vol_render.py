@@ -70,13 +70,14 @@ def render_volume(model, ray_o, ray_d, near=0, far=1, num_steps=192):
     """
     device = ray_o.device 
     
-    t = torch.linspace(near, far, num_steps, device=device).expand(ray_o.shape[0], num_steps)
+    t = torch.linspace(near, far, num_steps, device=device).expand(ray_d.shape[0], num_steps)
     mid = (t[:, :-1] + t[:, 1:]) / 2.
     lower = torch.cat([t[:, :1], mid], -1)
     upper = torch.cat([mid, t[:, -1:]], -1)
     u = torch.rand(t.shape, device=device)
     t = lower + (upper - lower) * u
-    delta = torch.cat([t[:, 1:] - t[:, :-1], torch.tensor([1e10], device=device)])
+    
+    delta = torch.cat([t[:, 1:] - t[:, :-1], torch.tensor([1e10], device=device).expand(ray_d.shape[0], 1)], dim=-1)
     
     x = ray_o.unsqueeze(1) + t.unsqueeze(2) * ray_d.unsqueeze(1)
     
@@ -89,6 +90,7 @@ def render_volume(model, ray_o, ray_d, near=0, far=1, num_steps=192):
     alpha = 1 - torch.exp(-sigma * delta)
     weights = compute_accumulated_transmittance(1 - alpha).unsqueeze(2) * alpha.unsqueeze(2)
     c = (weights * colors).sum(dim=1)
+    
     return c
 
 def vol_visual(rgb_tensor: torch.Tensor, save_path: str):
