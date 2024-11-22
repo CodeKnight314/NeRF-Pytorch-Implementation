@@ -169,13 +169,12 @@ def train_nerf(args):
     model_coarse = NeRF()
     model_coarse.train()
     
-    optimizer = optim.Adam(list(model_coarse.parameters()) + list(model_fine.parameters()), lr=args.lr)
+    optimizer = optim.Adam(model_coarse.parameters(), lr=args.lr)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=args.epochs, eta_min=1e-5)
     photometric_loss = PhotometricLoss()
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model_coarse = model_coarse.to(device)
-    model_fine = model_fine.to(device)
 
     image_save_path = os.path.join(args.save, "imgs")
     os.makedirs(image_save_path, exist_ok=True)
@@ -185,24 +184,23 @@ def train_nerf(args):
         total_psnr = 0.0
         
         for batch_idx, data in enumerate(tqdm(dataloader, desc=f"[{epoch+1}/{args.epochs}]")):
-            img = data['Image'].to(device)
-            ray_o = data['Origin'].to(device)
-            ray_d = data['direction'].to(device)
+            img = data['Image'].squeeze(0).to(device)
+            ray_o = data['Origin'].squeeze(0).to(device)
+            ray_d = data['direction'].squeeze(0).to(device)
+            height = data['height'].squeeze(0).item()
+            width = data['width'].squeeze(0).item()
 
             optimizer.zero_grad()
     
             rgb_tensor = render_volume(model_coarse, ray_o, ray_d, args.t_near, args.t_far, args.num_steps)
-
+            
             loss_coarse = photometric_loss(rgb_tensor, img)
             loss = loss_coarse
             loss.backward()
             optimizer.step()
     
             total_loss += loss.item()
-            
-            psnr = calculate_psnr(rgb_tensor, img)
-            total_psnr += psnr
-            
+                    
         avg_loss = total_loss / len(dataloader)
         avg_psnr = total_psnr / len(dataloader)
 
@@ -223,15 +221,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Train a NeRF model")
     parser.add_argument('--root', type=str, required=True, help='Path to dataset')
     parser.add_argument('--batch', type=int, default=1, help='Batch size for training')
-    parser.add_argument('--lr', type=float, default=5e-3, help='Learning rate for the optimizer')
+    parser.add_argument('--lr', type=float, default=5e-4, help='Learning rate for the optimizer')
     parser.add_argument('--epochs', type=int, default=100, help='Number of epochs to train the model')
     parser.add_argument('--save', type=str, required=True, help='Path to save the trained model')
     parser.add_argument('--pos_encoding_L', type=int, default=10, help='Number of frequencies for positional encoding')
     parser.add_argument('--dir_encoding_L', type=int, default=4, help='Number of frequencies for directional encoding')
     parser.add_argument('--t_near', type=int, default=2, help='Near plane for ray sampling')
     parser.add_argument('--t_far', type=int, default=6, help='Far plane for ray sampling')
-    parser.add_argument('--num_steps', type=int, default=128, help='Number of steps for ray sampling')
-    parser.add_argument('--fine_samples', type=int, default=128, help='Number of samples for the fine model')
+    parser.add_argument('--num_steps', type=int, default=192, help='Number of steps for ray sampling')
+    parser.add_argument('--fine_samples', type=int, default=192, help='Number of samples for the fine model')
     parser.add_argument('--size', type=int, default=128, help='Dimension of image for NeRF to sample rays from')
     args = parser.parse_args()
 
